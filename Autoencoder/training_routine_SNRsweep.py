@@ -167,58 +167,26 @@ def train_network(M=4,SNR_s = [1,1], SNR_c = [100,200],train_params=[50,100,0.01
     for epoch in range(int(num_epochs)):
         cpr= torch.randint(cpr_min,cpr_max+1,(batch_size_per_epoch[epoch],1),device=device)
         
-        #validation_BER.append([])
-        # if stage==1:
-        #     help1=1
-        # elif stage==3:
-        #     help1=0.8
-        # else:
-        #     help1=0
+        
         help1=0
         for step in range(int(batches_per_epoch)):
             decoded, batch_cw, t_NN, target, angle_shrunk, permuted_angle_shrunk, angle_corr, _, modulated, _ = system.run_system(train=True, help1=help1)
             if stage==1: # max kappa while comm
-                #loss = bceloss_sym(M,(softmax(decoded)), batch_labels.long())
                 closs = 1/num_ue*comm_loss_ra(decoded,batch_cw,alpha=alph)#*cpr_max#*torch.unsqueeze((cpr_ex),1))
-                angle_loss = torch.mean(mse_loss(torch.squeeze(angle_shrunk), torch.squeeze(permuted_angle_shrunk))*(angle_corr).repeat(2,1).T.reshape(-1,2))
-                #k1 = torch.min(torch.mean(torch.abs(radiate(beam.kx,torch.linspace(-20,20,40, device=device)*np.pi/180,beam.ky) @ modulated.mT)**2,axis=1))
-                #kappa = torch.min(torch.mean(torch.abs(radiate(beam.kx,torch.linspace(-20,20,40, device=device)*np.pi/180,beam.ky) @ modulated.mT)**4,axis=1))/k1
-
-                #k1 = torch.mean(torch.abs(radiate(beam.kx,torch.linspace(-20,20,40, device=device)*np.pi/180,beam.ky) @ modulated.mT)**2,axis=1)
-                #kappa = torch.min(torch.mean(torch.abs(radiate(beam.kx,torch.linspace(-20,20,40, device=device)*np.pi/180,beam.ky) @ modulated.mT)**4,axis=1)-k1**2)
-
+                #angle_loss = torch.mean(mse_loss(torch.squeeze(angle_shrunk), torch.squeeze(permuted_angle_shrunk))*(angle_corr).repeat(2,1).T.reshape(-1,2))
                 kappa = torch.min(torch.mean(torch.abs(radiate(beam.kx,torch.linspace(-20,20,40, device=device)*np.pi/180,beam.ky) @ modulated.mT)**4,axis=1))
                 loss = (1-weight_sens)*closs-kappa #+ weight_sens*angle_loss #+ beamloss
             elif stage==2: # Training of communication
-                #loss = bceloss_sym(M,(softmax(decoded)), batch_labels.long())
-                loss = torch.mean(torch.sum(bce_loss(decoded,batch_cw),1))#*cpr_max#*torch.unsqueeze((cpr_ex),1))
+                loss = torch.mean(torch.sum(bce_loss(decoded,batch_cw),1))
                 loss = (1-weight_sens)*loss.clone() 
             elif stage==3: # max kappa while comm + target detection
-                #loss = bceloss_sym(M,(softmax(decoded)), batch_labels.long())
                 closs = 1/num_ue*comm_loss_ra(decoded,batch_cw,alpha=alph)
-                #k1 = torch.min(torch.mean(torch.abs(radiate(beam.kx,torch.linspace(-20,20,40, device=device)*np.pi/180,beam.ky) @ modulated.mT)**2,axis=1))
-                #kappa = torch.min(torch.mean(torch.abs(radiate(beam.kx,torch.linspace(-20,20,40, device=device)*np.pi/180,beam.ky) @ modulated.mT)**4,axis=1))/k1
-
-                #k1 = torch.mean(torch.abs(radiate(beam.kx,torch.linspace(-20,20,40, device=device)*np.pi/180,beam.ky) @ modulated.mT)**2,axis=1)
-                #kappa = torch.min(torch.mean(torch.abs(radiate(beam.kx,torch.linspace(-20,20,40, device=device)*np.pi/180,beam.ky) @ modulated.mT)**4,axis=1)-k1**2)
-                #angle_loss = torch.mean(mse_loss(torch.squeeze(angle_shrunk), torch.squeeze(permuted_angle_shrunk))*(angle_corr).repeat(2,1).T.reshape(-1,2))
-
                 kappa = torch.min(torch.mean(torch.abs(radiate(beam.kx,torch.linspace(-20,20,40, device=device)*np.pi/180,beam.ky) @ modulated.mT)**4,axis=1))
                 loss =  (1-weight_sens)*closs + (weight_sens)*(torch.mean(bce_loss_target(torch.squeeze(t_NN),torch.squeeze(target))))-kappa*0.1#+ beamloss # combine with radar detect loss
 
-            else:
-                # d1 = permuted_angle_shrunk[:,0,:]>10*np.pi/180
-                # d = torch.squeeze(torch.nonzero((target*d1).repeat_interleave(cpr_max).type(torch.int)))
-                # dec_2 = torch.zeros((len(decoded),len(d),decoded[0].shape[1]),device=device)
-                # cw_2 = torch.zeros((len(decoded),len(d),decoded[0].shape[1]),device=device)
-                # for i in range(len(decoded)):
-                #     dec_2[i] = decoded[i][d]
-                #     cw_2[i] = batch_cw[i][d]
-                #closs = 1/num_ue*comm_loss_ra(dec_2,cw_2,alpha=alph)
-                closs = 1/num_ue*comm_loss_ra(decoded,batch_cw,alpha=alph)#+1/num_ue*comm_loss_ra(dec_2,cw_2,alpha=alph)
-                #angle_loss = torch.mean(mse_loss(torch.squeeze(angle_shrunk), torch.squeeze(permuted_angle_shrunk))*(angle_corr).repeat(2,1).T.reshape(-1,2))
+            else: # joint comm + detect loss
+                closs = 1/num_ue*comm_loss_ra(decoded,batch_cw,alpha=alph)
                 loss =  (1-weight_sens)*closs + (weight_sens)*(torch.mean(bce_loss_target(torch.squeeze(t_NN),torch.squeeze(target))))#+angle_loss)# combine with radar detect loss
-                #loss = loss.clone() + (weight_sens)*angle_loss ##+angle_loss_spec) #+ torch.mean(torch.abs(modulated)**2) # add angle loss; add signal energy to loss
                 
             
             # compute gradients
@@ -329,18 +297,6 @@ def train_network(M=4,SNR_s = [1,1], SNR_c = [100,200],train_params=[50,100,0.01
                 rad_rec_best = system.rad_rec
                 loss_b = loss_ev
 
-            # mmse = torch.conj(CSI)/(torch.conj(CSI)*CSI+torch.squeeze(sigma_nc**2)).to(device)
-            # validation_received.append((channel*mmse).detach().cpu().numpy())
-            # sent_all.append(modulated.detach().cpu().numpy())
-
-            # sig = torch.sum(direction[:,:,0] * radiate(beam.kx,torch.tensor([0],device=device), beam.ky, torch.tensor([np.pi/2],device=device)), axis=1)**2 
-            # SNR = np.abs((sig*sigma_s**2/sigma_ns**2).detach().cpu().numpy())
-            # CRB_azimuthi = 6*4/((2*np.pi)**2*np.cos(0*np.pi/180)**2*SNR*rad_rec.k[0].detach().cpu().numpy()*(rad_rec.k[0].detach().cpu().numpy()**2-1+1e-6))/(rad_rec.k[1].detach().cpu().numpy()*torch.mean(cpr.float()).detach().cpu().numpy())
-            # CRB_elevationi = 6*4/((2*np.pi)**2*np.cos(70*np.pi/180)**2*SNR*rad_rec.k[1].detach().cpu().numpy()*(rad_rec.k[1].detach().cpu().numpy()**2-1+1e-6))/(rad_rec.k[0].detach().cpu().numpy()*torch.mean(cpr.float()).detach().cpu().numpy())
-
-            # CRB_azimuth = np.minimum(CRB_azimuth,CRB_azimuthi)
-            # CRB_elevation = np.minimum(CRB_elevation,CRB_elevationi)
-
     if enctype=="NN":
         constellations = cp.zeros((M,num_ue),dtype=np.complex128)
         for i in range(num_ue):
@@ -352,15 +308,6 @@ def train_network(M=4,SNR_s = [1,1], SNR_c = [100,200],train_params=[50,100,0.01
     logging.info("Constellation is: %s" % (str(constellations)))
 
     ### Plot & collect the results in log:
-    # if plotting==True:
-    #     decision_region_evolution = []
-    #     for i in range(len(dec_best)):
-    #         mesh_bits = torch.round((torch.sigmoid(dec_best[i]((torch.view_as_complex(torch.Tensor(meshgrid))).to(device)*CSI[0],CSI[0].repeat(len(meshgrid)),torch.unsqueeze(sigma_nc,0).repeat(len(meshgrid),1))))).type(torch.int16).to(device) #*torch.exp(-1j*torch.angle(CSI_best[0]))
-    #         mesh_prediction= torch.zeros((len(meshgrid)),dtype=torch.long).to(device)
-    #         for b in range(int(torch.log2(M))):
-    #             mesh_prediction += mesh_bits[:,b]*2**b
-    #         decision_region_evolution.append(0.195*mesh_prediction.detach().cpu().numpy() + 0.4)
-
     print('Training finished')
     logging.info('Training finished')
 
@@ -382,12 +329,8 @@ def train_network(M=4,SNR_s = [1,1], SNR_c = [100,200],train_params=[50,100,0.01
                 plot_training(validation_SERs.cpu().detach().numpy(), validation_BER,M, cp.asnumpy(constellations),  gmi_exact.detach().cpu().numpy(), direction, det_error, np.asarray(rmse_angle),benchmark = rmse_benchmark, stage=stage, namespace=namespace, CRB=CRB_azimuth,antennas=rad_rec.k,enctype=enctype) 
             except:
                 pass
-                #plot_training(validation_SERs.cpu().detach().numpy(), validation_received[best_epoch],cvalid,M, constellations, gmi, decision_region_evolution, meshgrid, gmi_exact.detach().cpu().numpy(), sent_all, det_error, np.asarray(rmse_angle),benchmark = rmse_benchmark, stage=stage, namespace=namespace, CRB=CRB_azimuth) 
-            plot_training(validation_SERs.cpu().detach().numpy(), validation_BER,M, constellations,  gmi_exact.detach().cpu().numpy(), direction, det_error, np.asarray(rmse_angle),benchmark = rmse_benchmark, stage=stage, namespace=namespace, CRB=CRB_azimuth, antennas=rad_rec.k,enctype=enctype) 
+                
 
-            #path = figdir+"/plots"+".pkl"
-            #with open(path, 'wb') as fh:
-                #pickle.dump([validation_SERs.cpu().detach().numpy(), np.array(validation_received[best_epoch]),cvalid,M, constellations, gmi, decision_region_evolution, meshgrid, gmi_exact.detach().cpu().numpy(), sent_all, det_error, np.asarray(rmse_angle)], fh)
     if device=='cpu':
         return(enc_best,dec_best, beam_best, rad_rec_best, validation_SERs,gmi_exact, det_error, cp.array(constellations))
     else:
@@ -431,7 +374,7 @@ class system_runner():
                 self.dec.append(Decoder(M).to(device))
             self.beam = Beamformer(kx=k_a[0],ky=k_a[1],n_ue=num_ue+self.sens_beam).to(device)
             self.rad_rec = Radar_receiver(kx=k_a[0],ky=k_a[1],max_target=max_target,cpr_max=15, num_ue=num_ue+sens_beam).to(device)
-            #rad_rec = Joint_radar_receiver(kx=k_a[0],ky=k_a[1],max_target=max_target, encoding=encoding).to(device)
+    
         else:
             if enctype=="NN":
                 self.enc = NNs[0]
@@ -485,7 +428,6 @@ class system_runner():
             
         else:
             N_valid = self.N_valid
-            #N_valid = int(self.train_params[1])
             self.rad_rec.eval()
             self.beam.eval()
             if self.enctype=="NN":
@@ -498,14 +440,12 @@ class system_runner():
             
         
         #### random parameters
-        
         cpr= torch.randint(cpr_min,cpr_max+1,(N_valid,1),device=device)
         
         
         sigma_nc = torch.rand((int(N_valid*cpr_max),self.num_ue)).to(device)*(sigma_nc_all[1]-sigma_nc_all[0])+sigma_nc_all[0]
         sigma_ns = (torch.rand(int(N_valid),1).to(device)*(sigma_ns_all[1]-sigma_ns_all[0])+sigma_ns_all[0])
         sigma_ns_ex = sigma_ns.repeat(1,cpr_max).reshape(int(N_valid)*cpr_max)
-        # Generate training data: In most cases, you have a dataset and do not generate a training dataset during training loop
         # sample new mini-batch directory on the GPU (if available)
         decoded=torch.zeros(int(N_valid*cpr_max),(torch.max(self.M)), device=device)
         
@@ -513,7 +453,6 @@ class system_runner():
         if train==True:
             batch_labels = torch.zeros((N_valid*cpr_max*self.num_ue),dtype=torch.long, device=device)
             batch_labels.random_(int(self.M)).to(device)
-            #batch_labels[:10] = torch.tensor([0,1,2,3,0,1,2,3,0,1])
             batch_labels_onehot = torch.zeros(int(N_valid*cpr_max*self.num_ue), int(self.M), device=device)
             batch_labels_onehot[range(batch_labels_onehot.shape[0]), batch_labels.long()]=1
             batch_labels_onehot = batch_labels_onehot.reshape(int(N_valid*cpr_max), int(self.M),self.num_ue)
@@ -522,7 +461,7 @@ class system_runner():
             batch_labels = self.valid_labels
             batch_labels_onehot = self.labels_onehot
         
-        batch_cw = [] #torch.zeros(int(N_valid*cpr_max), int(np.log2(M)),num_ue)
+        batch_cw = [] 
         if self.enctype!="QAM":
             for i in range(self.num_ue):
                 batch_cw.append(gray_code(self.M)[batch_labels[:,i]].to(device))
@@ -531,8 +470,8 @@ class system_runner():
                 batch_cw.append(self.enc[i].coding()[batch_labels[:,i]])
 
         theta_valid = torch.zeros((int(N_valid),2,self.num_ue), device=device)
-        theta_valid[:,0,:] = np.pi/180*torch.tensor([50,70]).to(device)#(torch.rand(int(N_valid),num_ue)*20+30)
-        theta_valid[:,1,:] = np.pi/2#/180*(torch.rand((int(N_valid)))*1+90) # between 90 and 100 deg
+        theta_valid[:,0,:] = np.pi/180*torch.tensor([50,70]).to(device)
+        theta_valid[:,1,:] = np.pi/2
         theta_valid = torch.repeat_interleave(theta_valid,cpr_max,dim=0)
         
         target_labels = torch.randint(self.max_target+1,(int(N_valid),)).to(device) # Train in each epoch first 1 target, then 2, then ...
@@ -549,8 +488,7 @@ class system_runner():
 
         phi_valid = torch.zeros((int(N_valid),2,self.max_target)).to(device)
         phi_valid[:,0,:] = np.pi/180*(torch.rand((int(N_valid),self.max_target))*40-20) # paper: [-20 deg, 20 deg]
-        phi_valid[:,1,:] = np.pi/2#/180*(torch.rand((int(N_valid),max_target))*10+90) # between 90 and 100 deg
-
+        phi_valid[:,1,:] = np.pi/2
         phi_valid[:,0,:] *= target
         phi_valid[:,1,:] *= target
 
@@ -578,8 +516,6 @@ class system_runner():
         input_beam[:,2:4] = theta_valid[:,0,0:2]
         direction = self.beam(input_beam).to(device) # give the angles in which targets/receivers are to be expected
         
-        #if direction.isnan().any():
-        #    raise Error("NaN encountered while training.")
 
         # Propagate (training) data through transmitter
         if self.enctype!="QAM":
@@ -595,9 +531,6 @@ class system_runner():
                 encoded[:,i] = torch.unsqueeze(self.enc[i](batch_labels[:,i]),1).to(device)
             if self.sens_beam==1:
                 encoded[:,i+1] = (1*torch.exp(1j*torch.rand(batch_labels[:,i].shape[0])*2*np.pi)).reshape(-1,1)
-            
-                
-
 
         #modulated = torch.sum(encoded.expand(N_valid*cpr_max,num_ue,k_a[0]*k_a[1]).mT @ direction.mT,1)
         #modulated = torch.matmul(encoded, torch.unsqueeze(torch.transpose(direction,0,1),0)) # Apply Beamforming 
@@ -642,30 +575,11 @@ class system_runner():
         #x_i = torch.transpose(torch.reshape(x_i,(N_valid,cpr_max,self.rad_rec.k[0]*self.rad_rec.k[1])),1,2)
 
         if self.sens_input=="ryx":
-            #x_j = torch.transpose(torch.transpose(cpr_tensor[cpr.detach().cpu().numpy()-1].reshape((cpr_max*N_valid,1)).repeat(1,1,self.num_ue+self.sens_beam),0,1)+0j,1,2)
             x_e = torch.reshape(modulated * x_j,(N_valid,cpr_max, self.rad_rec.k[0]*self.rad_rec.k[1])).to(device)
-            #x_e = torch.transpose(x_e, 0,2)
-            #x_e = torch.transpose(x_e, 2,1)
-            #x_e = torch.transpose(torch.reshape(x_e,(N_valid,cpr_max*self.rad_rec.k[1],self.rad_rec.k[0])),1,2)
-            #x_i = x_i.unsqueeze(2).transpose(1,3)
-            #x_e = x_e.unsqueeze(2).transpose(1,3)
-            #Rxx = (x_e @ torch.transpose(torch.conj(x_e),1,2))/(torch.sqrt(cpr)*sigma_ns).reshape((-1,1,1))
-            #U,s, Vh = torch.linalg.svd(Rxx)
-            #x_et = (s**(-1/2)).unsqueeze(2)*Vh@x_e
-            #torch.einsum('ijk,dlm->di,jl,kk', x_i, torch.conj(x_e))
-            #R = torch.sum(x_i.transpose(2,3) @ torch.conj(x_e),axis=1)
-            #phi_alph = torch.mean(torch.mean(torch.angle(torch.matmul(x_i,torch.conj(x_e)))-torch.angle(torch.transpose(torch.matmul(x_i,torch.conj(x_e)),1,2)),axis=1),axis=1).reshape(-1,1,1)
-            #abs_alph = torch.mean(torch.abs(torch.diagonal(torch.matmul(x_i,torch.conj(x_e)),1,2)),1).reshape(-1,1,1)
-            #phi_alph = torch.angle(torch.matmul(x_i,torch.conj(x_e))[:,0,0]).reshape(-1,1,1)
-            #R = abs_alph*torch.exp(-1j*phi_alph)*
-            R = torch.matmul(x_i,torch.conj(x_e))/(cpr*sigma_ns).reshape(-1,1,1)#.repeat(1,self.rad_rec.k[0],self.num_ue+self.sens_beam)
-            #del x_e
+            R = torch.matmul(x_i,torch.conj(x_e))/(cpr*sigma_ns).reshape(-1,1,1)
         else:
             R = (x_i @ torch.transpose(torch.conj(x_i),1,2))/(cpr*sigma_ns**2).reshape(-1,1,1)
-        #R = R/torch.sum(torch.abs(R)**2) # normalization
-        #### Makes everything crash at the 
-        #received_rad_phase = received_rad  * cpr_tensor[cpr-1] * torch.exp(-1j*torch.angle(received_rad[:,0])).reshape((-1,1)).repeat(1,rad_rec.k[0])
-        #received_avg = torch.sum(torch.reshape(received_rad_phase, (N_valid, cpr_max, rad_rec.k[0], rad_rec.k[1])), dim=1)/cpr
+        
         received_radnn = (R.reshape(N_valid,-1)).to(device)
 
         angle= torch.zeros_like(phi_valid)
